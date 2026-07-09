@@ -44,7 +44,7 @@ This revealed the virtual host:
 After adding it to `/etc/hosts`, browsing to the site presented an
 instance of **Flowise AI**.
 
-> **Insert screenshot:** Flowise login page
+![FlowiseAI Login Page](images/image.png)
 
 ------------------------------------------------------------------------
 
@@ -73,6 +73,8 @@ password without requiring access to their email account.
 
 Using **Burp Suite**, intercept a password reset request.
 
+![Burp Test Request](images/image2.png)
+
 Submitting a request with a non-existent email returns:
 
 `404 User not found`
@@ -87,12 +89,14 @@ for:
 
 confirming that the account exists.
 
-> **Insert screenshot:** Burp Intruder results
+![Burp Intruder Results](images/image3.png)
 
 ### Resetting the Password
 
 Repeat the password reset request using the valid email. The response
 now contains the generated `tempToken`.
+
+![Leaked tempToken](images/image4.png)
 
 Using the **Change Password** page, supply:
 
@@ -101,8 +105,6 @@ Using the **Change Password** page, supply:
 -   A new password
 
 You can now authenticate to the Flowise dashboard.
-
-> **Insert screenshot:** Password reset token
 
 ------------------------------------------------------------------------
 
@@ -143,6 +145,8 @@ Payload:
   }
 }
 ```
+
+![CVE-2025-59528 - Payload](images/image5.png)
 
 Start a Netcat listener before sending the request.
 
