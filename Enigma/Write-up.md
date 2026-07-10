@@ -1,8 +1,3 @@
-# Enigma Write-up
-
-This is the GitHub-ready Markdown version based on your write-up.
-
-
 ## Initial Enumeration
 
 We begin by performing a full TCP port scan.
