@@ -56,7 +56,7 @@ Reviewing Kevin's mailbox revealed several internal communications, including an
 
 The authentication succeeded, confirming credential reuse. Sarah's inbox contained another valuable email with administrator credentials for an internal OpenSTAManager instance.
 
-![Sarah's Inbox](images/Image3.png)
+![Sarah's Inbox](images/Image3.PNG)
 
 ```text
 URL: http://support_001.enigma.htb
@@ -66,7 +66,7 @@ Password: Ne3s4rtars78s
 
 After adding the hostname to `/etc/hosts`, we successfully authenticated to the application.
 
-![OpenSTAManager Login](images/Image4.png)
+![OpenSTAManager Login](images/Image4.PNG)
 
 ---
 
@@ -217,7 +217,7 @@ http://127.0.0.1:1337
 
 presented the OliveTin web interface. The installed version (**3000.10.0**) is vulnerable to **CVE-2026-27626**, an OS Command Injection vulnerability.
 
-![OliveTin Dashboard](images/Image5.png)
+![OliveTin Dashboard](images/Image5.PNG)
 
 ### Vulnerability Overview
 
@@ -227,7 +227,7 @@ On the Enigma machine, this vulnerability is exposed through the **Backup Databa
 
 Since the configured backend action executes as **root**, successful exploitation results in arbitrary command execution with root privileges.
 
-![OliveTin Database Backup Action](images/Image6.png)
+![OliveTin Database Backup Action](images/Image6.PNG)
 
 To read the root flag directly:
 
