@@ -7,7 +7,7 @@ This repository contains my write-ups for Hack The Box machines. The purpose of 
 | Machine | Status |
 |----------|--------|
 | Silentium | ✅ Write-up available |
-| Enigma | ✅ Completed |
+| Enigma | ✅ Write-up available |
 | Reactor | ✅ Completed |
 | Connected | ✅ Completed |
 | CCTV | ✅ Completed |
