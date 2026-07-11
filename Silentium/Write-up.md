@@ -56,7 +56,7 @@ reset functionality.
 
 When an unauthenticated user submits a password reset request to:
 
-`POST /api/v1/forgot-password`
+`POST /api/v1/account/forgot-password`
 
 the application generates a temporary password reset token
 (`tempToken`). Instead of keeping this token internal and only
