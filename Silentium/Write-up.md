@@ -27,7 +27,7 @@ echo "<TARGET_IP> silentium.htb" | sudo tee -a /etc/hosts
 
 ------------------------------------------------------------------------
 
-## Web Application 
+## Web Application Enumeration
 We performed enumeration with Gobuster vhost option to uncover
 hidden web environments.
 
