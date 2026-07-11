@@ -17,8 +17,7 @@ nmap -p22,80 -sV -sC <TARGET_IP>
 ```
 
 The results identified an **OpenSSH** service on port 22 and an
-**Nginx** web server on port 80, which redirected requests to the
-virtual host **silentium.htb**.
+**Nginx** web server on port 80, which redirected requests to **silentium.htb**.
 
 We added the hostname to our local hosts file.
 
@@ -28,21 +27,20 @@ echo "<TARGET_IP> silentium.htb" | sudo tee -a /etc/hosts
 
 ------------------------------------------------------------------------
 
-## Virtual Host Enumeration
-
-Since the web server uses virtual hosts, we performed virtual host
-enumeration with Gobuster.
+## Web Application 
+We performed enumeration with Gobuster vhost option to uncover
+hidden web environments.
 
 ``` bash
 gobuster vhost -u http://silentium.htb -w /usr/share/wordlists/dirb/big.txt --append-domain
 ```
 
-This revealed the virtual host:
+This revealed:
 
 `staging.silentium.htb`
 
-After adding it to `/etc/hosts`, browsing to the site presented an
-instance of **Flowise AI**.
+After adding it to `/etc/hosts`, browsing to the site presented
+an instance of **Flowise AI**.
 
 ![FlowiseAI Login Page](images/image.png)
 
