@@ -6,6 +6,7 @@ This repository contains my write-ups for Hack The Box machines. The purpose of 
 
 | Machine | Status |
 |----------|--------|
+| Nimbus | ✅ Write-up available |
 | Silentium | ✅ Write-up available |
 | Enigma | ✅ Write-up available |
 | Reactor | ✅ Completed |
