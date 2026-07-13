@@ -24,13 +24,15 @@ echo "<TARGET_IP> nimbus.htb" | sudo tee -a /etc/hosts
 
 Browsing to the application revealed that the Job Submitter was temporarily left unauthenticated during a migration window.
 
-> **Insert screenshot:** Nimbus landing page
+![Log In Page](images/Image1.png)
 
 ---
 
 ## Discovering the SSRF Vulnerability
 
 Exploring the application revealed a feature allowing users to upload a YAML configuration or provide a remote URL through a **Preview** function.
+
+![Job Submitter](images/Image2.png)
 
 Because the backend needed to retrieve remote resources before validating them, this immediately suggested a potential Server-Side Request Forgery (SSRF) attack surface.
 
@@ -60,7 +62,7 @@ http://0251.0376.0251.0376/latest/meta-data/iam/security-credentials/nimbus-web-
 
 The response disclosed temporary AWS credentials for the **nimbus-web-role** IAM role.
 
-> **Insert screenshot:** AWS credentials
+![AWS Credentials](images/Image3.png)
 
 ---
 
