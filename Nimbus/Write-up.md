@@ -214,7 +214,7 @@ The worker immediately began polling the `nimbus-jobs` queue.
 
 This confirmed that the worker continuously trusted and executed user-controlled job definitions retrieved from the SQS queue. Together with the unsafe use of `yaml.load()`, this behaviour fully explained why arbitrary Python code could be executed simply by submitting a crafted YAML document.
 
-![Worker Proccessing Queue](images/7.png)
+![Worker Proccessing Queue](images/Image7.png)
 
 ## Privilege Escalation
 
